@@ -1,0 +1,15 @@
+
+numpy 
+faker 
+tqdm 
+openpyxl
+streamlit
+pandas
+matplotlib
+seaborn
+plotly
+scipy
+sdv
+scikit-learn
+xlsxwriter
+ctgan
