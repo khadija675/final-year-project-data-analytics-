@@ -15,7 +15,6 @@ GLOBAL_SEED = 42
 np.random.seed(GLOBAL_SEED)
 
 # --- Enhanced Plotting Style for better aesthetics ---
-# Using 'darkgrid' background and setting a custom color palette
 plt.style.use('seaborn-v0_8-darkgrid') 
 COLOR_REAL = '#1f77b4' # Muted Blue
 COLOR_SYNTH = '#ff7f0e' # Vibrant Orange
@@ -41,7 +40,7 @@ st.markdown("""
     text-align: center;
     border-left: 5px solid #10c0c0; /* Accent border */
 }
-/* Custom Navigation Bar */
+/* Custom Navigation Bar Styling */
 .navbar {
     display: flex;
     justify-content: flex-start;
@@ -50,20 +49,28 @@ st.markdown("""
     border-bottom: 2px solid #ccc;
     padding-bottom: 10px;
 }
-.nav-item {
-    cursor: pointer;
+/* Style the Streamlit buttons to look like tabs */
+.stButton>button {
+    background-color: transparent !important;
+    color: #4f4f4f !important;
     font-size: 1.1em;
     font-weight: 600;
-    padding: 5px 0;
-    color: #4f4f4f;
+    border: none !important;
+    padding: 5px 0 5px 0;
     transition: color 0.3s;
+    height: 100%;
 }
-.nav-item:hover {
-    color: #10c0c0;
-}
-.active-nav {
+.stButton>button:hover {
     color: #10c0c0 !important;
-    border-bottom: 3px solid #10c0c0;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+/* Hide the default space used by the button so we can use markdown for the active line */
+div[data-testid="stHorizontalBlock"] > div > button {
+    visibility: hidden;
+    height: 0px !important;
+    margin: 0px !important;
+    padding: 0px !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -73,10 +80,7 @@ st.markdown("""
 # Helper functions
 # ------------------------
 def missing_summary(df):
-    """Calculates missing values and percentage for each column.
-    
-    Returns a DataFrame with columns: 'missing_count', 'missing_percent', 'dtype'.
-    """
+    """Calculates missing values and percentage for each column."""
     miss = df.isnull().sum()
     percent = miss/len(df)*100
     return pd.DataFrame({"missing_count": miss, "missing_percent": percent, "dtype": df.dtypes.astype(str)}).sort_values("missing_percent", ascending=False)
@@ -88,7 +92,6 @@ def identify_and_drop_unsuitable_cols(df):
     for col in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df[col]):
             unsuitable_cols.append(col)
-        # Check for object columns that are nearly unique (likely IDs/identifiers)
         elif df[col].dtype == 'object' and df[col].nunique() > df.shape[0] * 0.9:
             unsuitable_cols.append(col)
             
@@ -103,7 +106,6 @@ def plot_numeric_kde_ks(real_df, synth_df, numeric_cols):
         real_data = real_df[col].dropna()
         synth_data = synth_df[col].dropna()
 
-        # Robustness Check 1: Ensure variance exists for smooth plotting
         if real_data.empty or synth_data.empty or real_data.std() == 0 or synth_data.std() == 0:
             st.warning(f"Skipping KDE for '{col}': Data is constant or missing. Cannot calculate distribution.")
             continue
@@ -136,29 +138,24 @@ def plot_category_histograms(df_original, df_synthetic, cat_cols):
         return
 
     for col in cat_cols:
-        # Prepare data for plotting
         real_counts = df_original[col].value_counts(dropna=False).sort_index()
         synth_counts = df_synthetic[col].value_counts(dropna=False).sort_index()
 
-        # Combine indices for consistent plotting
         all_categories = sorted(list(set(real_counts.index) | set(synth_counts.index)))
 
         real_data = real_counts.reindex(all_categories, fill_value=0)
         synth_data = synth_counts.reindex(all_categories, fill_value=0)
 
-        # Calculate max height for consistent y-axis across both plots
         max_y = max(real_data.max(), synth_data.max()) * 1.1
 
         fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
 
-        # Real Data Plot
         axes[0].bar(real_data.index, real_data.values, color=COLOR_REAL, alpha=0.7)
         axes[0].set_title(f"Real Data: {col}", fontsize=14, fontweight='bold')
         axes[0].set_ylabel("Count")
         axes[0].tick_params(axis='x', rotation=45)
         axes[0].set_ylim(0, max_y)
 
-        # Synthetic Data Plot
         axes[1].bar(synth_data.index, synth_data.values, color=COLOR_SYNTH, alpha=0.7)
         axes[1].set_title(f"Synthetic Data: {col}", fontsize=14, fontweight='bold')
         axes[1].tick_params(axis='x', rotation=45)
@@ -174,7 +171,6 @@ def plot_correlation_heatmaps(real_df, synth_df, numeric_cols):
         st.info("No numeric columns found for correlation analysis.")
         return
 
-    # Check for empty or constant numeric columns
     valid_numeric_cols = [col for col in numeric_cols if real_df[col].nunique() > 1 and synth_df[col].nunique() > 1]
     if len(valid_numeric_cols) < 2:
         st.info("Need at least two non-constant numeric columns to plot correlation.")
@@ -196,6 +192,41 @@ def plot_correlation_heatmaps(real_df, synth_df, numeric_cols):
     plt.tight_layout()
     st.pyplot(fig)
 
+
+def plot_bivariate_scatter(real_df, synth_df, col_x, col_y):
+    """
+    Plots bivariate scatter plots for real and synthetic data side-by-side
+    to compare relationships between two numeric columns. (NEW FEATURE)
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    
+    # 1. Real Data Scatter Plot
+    sns.scatterplot(x=col_x, y=col_y, data=real_df, ax=axes[0], color=COLOR_REAL, alpha=0.6, s=10)
+    axes[0].set_title(f"Real Data: {col_x} vs. {col_y}", fontsize=14, fontweight='bold')
+    axes[0].set_xlabel(col_x)
+    axes[0].set_ylabel(col_y)
+    
+    # 2. Synthetic Data Scatter Plot
+    sns.scatterplot(x=col_x, y=col_y, data=synth_df, ax=axes[1], color=COLOR_SYNTH, alpha=0.6, s=10)
+    axes[1].set_title(f"Synthetic Data: {col_x} vs. {col_y}", fontsize=14, fontweight='bold')
+    axes[1].set_xlabel(col_x)
+    axes[1].set_ylabel(col_y)
+    
+    # Set limits and titles consistently
+    min_x = min(real_df[col_x].min(), synth_df[col_x].min()) * 0.95
+    max_x = max(real_df[col_x].max(), synth_df[col_x].max()) * 1.05
+    min_y = min(real_df[col_y].min(), synth_df[col_y].min()) * 0.95
+    max_y = max(real_df[col_y].max(), synth_df[col_y].max()) * 1.05
+    
+    for ax in axes:
+        ax.set_xlim(min_x, max_x)
+        ax.set_ylim(min_y, max_y)
+        ax.grid(True, linestyle='--', alpha=0.6)
+        
+    plt.tight_layout()
+    st.pyplot(fig)
+
+
 def make_download_link(df, filename="data.csv"):
     csv = df.to_csv(index=False)
     b64 = base64.b64encode(csv.encode()).decode()
@@ -214,7 +245,6 @@ def homepage():
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        # Better, more symbolic placeholder image/logo
         st.image("https://placehold.co/400x300/10c0c0/ffffff?text=DATA+SYNTHESIS%0AENGINE", caption="AI-Powered Data Generation")
         st.markdown("""
         <div style="padding-top: 15px; text-align: center;">
@@ -226,13 +256,13 @@ def homepage():
         st.markdown("## 🎯 Our 8-Step Synthesis Workflow")
         st.markdown("""
         This tool follows a professional, end-to-end pipeline to ensure high-fidelity and validated synthetic output:
-        1.  **Input:** Upload your raw CSV dataset.
+        1.  **Input:** Upload your raw CSV or Excel dataset.
         2.  **Data Preparation:** Read data, categorize columns, and automatically drop unsuitable fields (like dates/IDs) and high-missing columns.
         3.  **Generation:** Apply **CTGAN** (Deep Learning) or Gaussian Copula to learn data structure.
         4.  **Automatic Postprocessing:** Automatically clean up the synthetic data (e.g., truncate overly long text categories) before validation.
         5.  **Statistical Validation:** Calculate and compare Mean, Standard Deviation, and Missing structure.
-        6.  **Distribution Validation:** Check categorical histograms.
-        7.  **Quality Validation:** Use **KDE plots** and the **Kolmogorov-Smirnov (KS) Test** for numeric columns.
+        6.  **Correlation Validation:** Check inter-feature relationships using heatmaps.
+        7.  **Distribution Validation:** Use **KDE plots**, **KS-Test**, and **Bivariate Scatter Plots** for detailed quality checks.
         8.  **Download:** Securely download the final data.
         """)
 
@@ -255,7 +285,6 @@ def about_page():
     with col2:
         st.markdown("#### Synthetic Data Vault (SDV)")
         st.info("The core engine. We use SDV's `CTGANSynthesizer` (a Generative Adversarial Network) for generating high-fidelity synthetic data, which excels at capturing complex dependencies.")
-        # Triggering image for CTGAN architecture
         st.markdown("")
     
     with col3:
@@ -265,8 +294,10 @@ def about_page():
     st.markdown("### Key Scientific Validation Methods")
     st.markdown("The application relies on advanced statistical tests to guarantee data quality:")
     st.markdown("- **Kolmogorov-Smirnov (KS) Test:** A powerful non-parametric test to determine if two samples (Real vs. Synthetic) are drawn from the same distribution. A high p-value (e.g., >0.05) is desirable.")
-    # Triggering image for KS test
-    st.markdown("")
+    st.markdown("""
+
+[Image of Kolmogorov-Smirnov test cumulative distribution function plot]
+""")
     st.markdown("- **Kernel Density Estimation (KDE):** Provides visual validation by plotting the smoothed probability distribution of numeric data, allowing visual comparison of shapes and modes.")
     st.markdown("- **Correlation Heatmaps:** Ensures that the synthetic data accurately maintains the relationships between the original numeric variables.")
 
@@ -276,47 +307,56 @@ def synthesis_lab_page(df_original_placeholder):
     # 1. INITIAL UPLOAD & DATA READING
     # ------------------------
     st.header("Step 1: Upload and Prepare Original Dataset")
-    uploaded_file = st.file_uploader("Upload CSV (Required)", type=["csv"])
+    
+    uploaded_file = st.file_uploader("Upload Data (CSV or Excel)", type=["csv", "xlsx", "xls"])
 
     if uploaded_file is not None:
         @st.cache_data
         def process_upload(file):
-            df = pd.read_csv(file)
-            # Remove unsuitable columns (dates, high-cardinality IDs)
+            file_extension = file.name.split('.')[-1].lower()
+
+            if file_extension == 'csv':
+                df = pd.read_csv(file)
+            elif file_extension in ['xlsx', 'xls']:
+                df = pd.read_excel(file)
+            else:
+                st.error("Unsupported file type detected.")
+                return None, []
+
             df = identify_and_drop_unsuitable_cols(df)
             
-            # Identify and drop columns with over 20% missing values
             missing = missing_summary(df)
             drop_cols_20 = missing[missing['missing_percent']>20].index.tolist()
             if drop_cols_20:
                 st.warning(f"Dropping columns with >20% missing: {drop_cols_20}")
                 df = df.drop(columns=drop_cols_20)
             
-            # Reset index after potentially dropping rows/cols
             df = df.reset_index(drop=True)
             return df, drop_cols_20
 
         df_original, drop_cols_20 = process_upload(uploaded_file)
         
-        st.session_state['df_original'] = df_original
-        st.session_state['data_uploaded'] = True
+        if df_original is not None:
+            st.session_state['df_original'] = df_original
+            st.session_state['data_uploaded'] = True
+    
+            st.subheader("Data Preview & Summary (Metrics for real data)")
+            
+            total_cells = df_original.size
+            total_missing = df_original.isnull().sum().sum()
+            missing_percent_overall = (total_missing / total_cells) * 100 if total_cells > 0 else 0
 
-        st.subheader("Data Preview & Summary (Metrics for real data)")
-        
-        # Calculate overall missing percentage
-        total_cells = df_original.size
-        total_missing = df_original.isnull().sum().sum()
-        missing_percent_overall = (total_missing / total_cells) * 100 if total_cells > 0 else 0
-
-        # Summary cards
-        cols = st.columns(4)
-        cols[0].markdown(f"<div class='card'><h3>{df_original.shape[0]}</h3><p>Rows</p></div>", unsafe_allow_html=True)
-        cols[1].markdown(f"<div class='card'><h3>{df_original.shape[1]}</h3><p>Total Variables (Columns)</p></div>", unsafe_allow_html=True)
-        cols[2].markdown(f"<div class='card'><h3>{len(drop_cols_20)}</h3><p>High-Missing Cols Dropped</p></div>", unsafe_allow_html=True)
-        cols[3].markdown(f"<div class='card'><h3>{missing_percent_overall:.2f}%</h3><p>Total Missing Data</p></div>", unsafe_allow_html=True)
-        
-        st.dataframe(df_original.head())
-        st.write("---")
+            # Summary cards
+            cols = st.columns(4)
+            cols[0].markdown(f"<div class='card'><h3>{df_original.shape[0]}</h3><p>Rows</p></div>", unsafe_allow_html=True)
+            cols[1].markdown(f"<div class='card'><h3>{df_original.shape[1]}</h3><p>Total Variables (Columns)</p></div>", unsafe_allow_html=True)
+            cols[2].markdown(f"<div class='card'><h3>{len(drop_cols_20)}</h3><p>High-Missing Cols Dropped</p></div>", unsafe_allow_html=True)
+            cols[3].markdown(f"<div class='card'><h3>{missing_percent_overall:.2f}%</h3><p>Total Missing Data</p></div>", unsafe_allow_html=True)
+            
+            st.dataframe(df_original.head())
+            st.write("---")
+        else:
+            st.session_state['data_uploaded'] = False
 
     # Conditional flow starts here
     if st.session_state.get('data_uploaded'):
@@ -336,32 +376,28 @@ def synthesis_lab_page(df_original_placeholder):
         
         col_epochs, col_batch = st.columns(2)
 
-        # CTGAN Parameters (Updated to use correct parameters and proxies)
         if model=="CTGAN":
             st.subheader("CTGAN Training Parameters")
             col_epochs, col_batch, col_lr = st.columns(3)
             with col_epochs:
-                epochs = st.number_input("Epochs", 50, 1000, 200, help="Number of training iterations. More epochs = better learning, longer time.")
+                epochs = st.number_input("Epochs", 50, 1000, 200, help="Number of training iterations.")
             with col_batch:
-                batch = st.number_input("Batch Size", 20, 1020, 120, step=10, help="Samples per gradient update. Must be a multiple of 10.")
+                batch = st.number_input("Batch Size", 20, 1020, 120, step=10, help="Samples per gradient update.")
             with col_lr:
-                # Mapping 'Generator Decay' concept to Learning Rate
-                lr = st.number_input("Learning Rate (Generator Decay Proxy)", 1e-5, 1e-3, 2e-4, format="%e", help="Controls the speed of learning. A smaller value often leads to smoother training (similar to a slow decay).", key='lr_input')
+                lr = st.number_input("Learning Rate (Generator Decay Proxy)", 1e-5, 1e-3, 2e-4, format="%e", help="Controls the speed of learning.", key='lr_input')
             
-            # The 'Accuracy Threshold' input
-            quality_threshold = st.slider("Target Quality Threshold (0.0 to 1.0)", 0.0, 1.0, 0.85, 0.05, help="This is the minimum desired Quality Score after generation. Used for post-generation recommendation.", key='quality_threshold_slider')
+            quality_threshold = st.slider("Target Quality Threshold (0.0 to 1.0)", 0.0, 1.0, 0.85, 0.05, help="Minimum desired Quality Score.", key='quality_threshold_slider')
             
         else:
             with col_epochs:
-                st.info("Gaussian Copula is parameter-free (no training settings needed).")
-            # Default values for non-CTGAN
+                st.info("Gaussian Copula is parameter-free.")
             lr = 2e-4
             quality_threshold = 0.85
             with col_batch:
-                pass # empty column placeholder
+                pass 
 
         with col_rows:
-            rows = st.number_input("Rows to Generate (Required)", 10, 50000, df_original.shape[0] * 2, help=f"Default: 2x Original Rows ({df_original.shape[0]}). Specify the size of your synthetic dataset.")
+            rows = st.number_input("Rows to Generate (Required)", 10, 50000, df_original.shape[0] * 2, help=f"Default: 2x Original Rows ({df_original.shape[0]}).")
         
         st.write("---")
 
@@ -381,17 +417,13 @@ def synthesis_lab_page(df_original_placeholder):
         if st.button(f"Generate Data using {model}"):
             
             if model == "CTGAN" and df_original.shape[0] < 100:
-                st.error(f"Dataset has only {df_original.shape[0]} rows. CTGAN training is unstable with less than 100 rows. Please use Gaussian Copula or a larger dataset.")
+                st.error(f"Dataset has only {df_original.shape[0]} rows. CTGAN is unstable with less than 100 rows. Please use Gaussian Copula.")
                 st.stop()
-                 
-            # Apply CTGAN/Gaussian Copula for synthesizing data
+                
             if model=="CTGAN":
-                # Use model_kwargs to pass parameters that tune the underlying PyTorch model, 
-                # like the learning rate (proxy for decay).
                 model_kwargs = {
                     'generator_lr': lr,
                     'discriminator_lr': lr,
-                    # Setting a fixed dim for stability, avoiding another user input for now
                     'generator_dim': (256, 256), 
                     'discriminator_dim': (256, 256)
                 }
@@ -404,22 +436,19 @@ def synthesis_lab_page(df_original_placeholder):
                 synthetic = synth_model.sample(rows)
             
             # --- AUTOMATIC POSTPROCESSING (Step 4) ---
-            # Automatically apply text truncation to object columns (Fixes SDV text generation artifacts)
             for col in synthetic.select_dtypes("object").columns:
-                # Ensure it's treated as string before slicing
                 synthetic[col] = synthetic[col].astype(str).str[:72] 
-            st.info("Step 4: Automatic Postprocessing Applied! Text columns (e.g., categories) were automatically truncated to 72 characters to clean up generated noise and inconsistencies.")
+            st.info("Step 4: Automatic Postprocessing Applied! Text columns were truncated to 72 characters.")
             # --- END AUTOMATIC POSTPROCESSING ---
 
             st.session_state.synthetic = synthetic
             
-            # Post-generation message based on the conceptual Quality Threshold
             st.success("Synthetic data generation and postprocessing complete!")
             if model == "CTGAN":
                 st.subheader("Target Quality Status")
                 st.warning(f"""
-                The model has been trained. Remember that achieving a high structural quality (Quality Score > {quality_threshold:.2f}) requires careful tuning of the Learning Rate and Epochs, especially for complex datasets.
-                Proceed to Step 4 for visual validation.
+                The model has been trained. Achieving a high structural quality (Quality Score > {quality_threshold:.2f}) requires careful tuning.
+                Proceed to Step 5 for visual validation.
                 """)
 
             st.subheader("Generated Data Preview")
@@ -428,23 +457,22 @@ def synthesis_lab_page(df_original_placeholder):
             st.session_state.synthetic_generated = True
             st.write("---")
 
-    # Conditional rendering for steps 4 and 5 (Validation and Download)
+    # Conditional rendering for steps 5 onwards (Validation and Download)
     if "synthetic_generated" in st.session_state and st.session_state.synthetic_generated:
         
         synthetic = st.session_state.synthetic.copy()
         df_original = st.session_state['df_original']
+        numeric_cols = df_original.select_dtypes(include=np.number).columns.tolist()
 
         # ------------------------
-        # 4. VALIDATION / GRAPHICAL REPRESENTATION SECTION
+        # 5. VALIDATION / GRAPHICAL REPRESENTATION SECTION
         # ------------------------
-        st.header("Step 4: Validation and Quality Check") 
+        st.header("Step 5: Validation and Quality Check") 
         
-        st.subheader("Statistical and Distribution Validation (Steps 5-7)") 
+        st.subheader("Statistical Validation (Step 5)") 
 
-        # 4.1 Missing Data Comparison (Step 5)
-        st.markdown("#### 4.1 Missing Value Structure Comparison (Step 5)")
-        st.write("Checks if the synthetic data maintains the missing data structure of the real data.")
-        # FIX: Changed 'Real_percent' to the correct column name 'missing_percent' in the rename operation
+        # 5.1 Missing Data Comparison
+        st.markdown("#### 5.1 Missing Value Structure Comparison")
         real_missing = missing_summary(df_original).rename(columns={'missing_count': 'Real_Count', 'missing_percent': 'Real_Percent'})
         synth_missing = missing_summary(synthetic).rename(columns={'missing_count': 'Synth_Count', 'missing_percent': 'Synth_Percent'})
         
@@ -453,10 +481,8 @@ def synthesis_lab_page(df_original_placeholder):
                                 left_index=True, right_index=True, how='outer').fillna(0)
         st.dataframe(missing_comp.style.format({'Real_Percent': "{:.2f}%", 'Synth_Percent': "{:.2f}%"}))
         
-        # 4.2 Mean and Standard Deviation Comparison (Step 5)
-        st.markdown("#### 4.2 Mean and Standard Deviation Comparison (Step 5)")
-        st.write("Compares central tendency (Mean) and dispersion (Std Dev) for numeric columns.")
-        numeric_cols = df_original.select_dtypes(include=np.number).columns.tolist()
+        # 5.2 Mean and Standard Deviation Comparison
+        st.markdown("#### 5.2 Mean and Standard Deviation Comparison")
         if numeric_cols:
             real_stats = df_original[numeric_cols].agg(['mean', 'std']).T.rename(columns={'mean': 'Real_Mean', 'std': 'Real_Std'})
             synth_stats = synthetic[numeric_cols].agg(['mean', 'std']).T.rename(columns={'mean': 'Synth_Mean', 'std': 'Synth_Std'})
@@ -465,28 +491,50 @@ def synthesis_lab_page(df_original_placeholder):
         else:
             st.info("No numeric columns available for Mean/Std Dev comparison.")
         
-        # 4.3 Correlation Heatmap Comparison (Step 5)
-        st.markdown("#### 4.3 Correlation Heatmap Comparison (Step 5)")
-        st.write("Visualizes how well the synthetic data maintains relationships between variables.")
+        st.subheader("Relationship and Distribution Validation (Steps 6-7)") 
+        
+        # 6. Correlation Heatmap Comparison (Step 6)
+        st.markdown("#### 6.1 Correlation Heatmap Comparison")
         plot_correlation_heatmaps(df_original, synthetic, numeric_cols)
         
-        # 4.4 Numeric Distributions (KDE & KS-test) (Step 7)
-        st.markdown("#### 4.4 Numeric Distributions (KDE & KS-test) (Step 7)")
-        st.write("KDE plots compare the shape of the distributions. The KS-test checks the statistical similarity (p-value > 0.05 is good).")
+        # 7. Distribution Validation (Step 7)
+        
+        # 7.1 Bivariate Relationship Scatter Plot (NEW)
+        st.markdown("#### 7.1 Bivariate Relationship Scatter Plot")
+        st.write("Visually compare the joint distribution and structure between two specific numeric features.")
+        
+        if len(numeric_cols) >= 2:
+            col_x, col_y = st.columns(2)
+            
+            with col_x:
+                # Use unique keys for selectbox
+                selected_col_x = st.selectbox("Select X-Axis Column:", numeric_cols, index=0, key='bivar_x')
+            
+            default_index_y = 1 if len(numeric_cols) > 1 else 0
+            with col_y:
+                selected_col_y = st.selectbox("Select Y-Axis Column:", numeric_cols, index=default_index_y, key='bivar_y')
+
+            if selected_col_x == selected_col_y:
+                st.warning("Please select two different columns for bivariate scatter plot analysis.")
+            else:
+                plot_bivariate_scatter(df_original, synthetic, selected_col_x, selected_col_y)
+        else:
+            st.info("Need at least two numeric columns for bivariate scatter plot analysis.")
+
+        # 7.2 Numeric Distributions (KDE & KS-test)
+        st.markdown("#### 7.2 Numeric Distributions (KDE & KS-test)")
         plot_numeric_kde_ks(df_original, synthetic, numeric_cols)
         
-        # 4.5 Categorical Distributions (Histograms) (Step 6)
+        # 7.3 Categorical Distributions (Histograms)
         cat_cols = df_original.select_dtypes(exclude=np.number).columns.tolist()
-        st.markdown("#### 4.5 Categorical Histograms (Step 6)")
-        st.write("Compares the frequency of categories between the real and synthetic datasets.")
+        st.markdown("#### 7.3 Categorical Histograms")
         plot_category_histograms(df_original, synthetic, cat_cols)
         
         st.write("---")
         
+        # 8. FINAL DOWNLOAD SECTION (Step 8)
         # ------------------------
-        # 5. FINAL DOWNLOAD SECTION (Step 8)
-        # ------------------------
-        st.header("Step 5: Download Synthetic Dataset (Step 8)") 
+        st.header("Step 6: Download Synthetic Dataset (Step 8)") 
         st.markdown("Once validation is complete and satisfactory, download your final synthetic dataset.")
         st.markdown(make_download_link(synthetic,"final_synthetic_data.csv"), unsafe_allow_html=True)
         st.balloons()
@@ -500,42 +548,51 @@ def synthesis_lab_page(df_original_placeholder):
 if 'page' not in st.session_state:
     st.session_state.page = "home"
 
-# Navigation Bar (using Markdown/HTML for styling)
-nav_html = f"""
-<div class="navbar">
-    <div class="nav-item {'active-nav' if st.session_state.page == 'home' else ''}" onclick="window.parent.postMessage({{ 'streamlit': {{ 'command': 'SET_PAGE', 'page': 'home' }} }}, '*')">Home</div>
-    <div class="nav-item {'active-nav' if st.session_state.page == 'lab' else ''}" onclick="window.parent.postMessage({{ 'streamlit': {{ 'command': 'SET_PAGE', 'page': 'lab' }} }}, '*')">Synthesis Lab</div>
-    <div class="nav-item {'active-nav' if st.session_state.page == 'about' else ''}" onclick="window.parent.postMessage({{ 'streamlit': {{ 'command': 'SET_PAGE', 'page': 'about' }} }}, '*')">About</div>
-</div>
-"""
-st.markdown(nav_html, unsafe_allow_html=True)
+# Navigation Bar
+nav_cols = st.columns(3)
 
-# Handle page changes from the navigation clicks
+with st.container():
+    st.markdown("<div class='navbar'>", unsafe_allow_html=True)
+    
+    # Home Tab
+    with nav_cols[0]:
+        if st.button("Home", key="nav_home", use_container_width=True):
+            st.session_state.page = "home"
+            st.rerun()
+        if st.session_state.page == "home":
+            st.markdown("<div style='color: #10c0c0 !important; border-bottom: 3px solid #10c0c0; margin-top: -16px; font-weight: 600;'>Home</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='color: #4f4f4f; margin-top: -16px; font-weight: 600;'>Home</div>", unsafe_allow_html=True)
+
+
+    # Synthesis Lab Tab
+    with nav_cols[1]:
+        if st.button("Synthesis Lab", key="nav_lab", use_container_width=True):
+            st.session_state.page = "lab"
+            st.rerun()
+        if st.session_state.page == "lab":
+            st.markdown("<div style='color: #10c0c0 !important; border-bottom: 3px solid #10c0c0; margin-top: -16px; font-weight: 600;'>Synthesis Lab</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='color: #4f4f4f; margin-top: -16px; font-weight: 600;'>Synthesis Lab</div>", unsafe_allow_html=True)
+            
+
+    # About Tab
+    with nav_cols[2]:
+        if st.button("About", key="nav_about", use_container_width=True):
+            st.session_state.page = "about"
+            st.rerun()
+        if st.session_state.page == "about":
+            st.markdown("<div style='color: #10c0c0 !important; border-bottom: 3px solid #10c0c0; margin-top: -16px; font-weight: 600;'>About</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div style='color: #4f4f4f; margin-top: -16px; font-weight: 600;'>About</div>", unsafe_allow_html=True)
+            
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# Render the correct page based on session state
 if st.session_state.page == "home":
     homepage()
 elif st.session_state.page == "about":
     about_page()
 elif st.session_state.page == "lab":
-    # Pass a placeholder which will be ignored, but relies on st.session_state for actual data
-    synthesis_lab_page(None) 
-
-
-# This script handles the navigation state update from the custom HTML links
-st.markdown("""
-<script>
-    const navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(item => {
-        item.onclick = function() {
-            const pageName = this.innerText.toLowerCase().replace(' ', '');
-            if (pageName === 'synthesislab') {
-                // This message triggers a page change (and subsequent st.rerun in the app logic)
-                window.parent.postMessage({ type: 'streamlit:setPage', page: 'lab' }, '*');
-            } else if (pageName === 'home') {
-                 window.parent.postMessage({ type: 'streamlit:setPage', page: 'home' }, '*');
-            } else if (pageName === 'about') {
-                 window.parent.postMessage({ type: 'streamlit:setPage', page: 'about' }, '*');
-            }
-        };
-    });
-</script>
-""", unsafe_allow_html=True)
+    synthesis_lab_page(None)
