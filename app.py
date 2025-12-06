@@ -8,30 +8,31 @@ from sdv.single_table import CTGANSynthesizer, GaussianCopulaSynthesizer
 from sdv.metadata import SingleTableMetadata
 from scipy.stats import ks_2samp
 import warnings
+import urllib.parse
 warnings.filterwarnings('ignore') # Suppress warnings related to Matplotlib/Seaborn styling
 
 # Set a consistent random seed for reproducibility 
 GLOBAL_SEED = 42 
 np.random.seed(GLOBAL_SEED)
 
-# --- Enhanced Plotting Style for better aesthetics ---
+# --- Enhanced Plotting Style ---
 plt.style.use('seaborn-v0_8-darkgrid') 
 COLOR_REAL = '#1f77b4' # Muted Blue
 COLOR_SYNTH = '#ff7f0e' # Vibrant Orange
 # ------------------------
 
 # ------------------------
-# Page config & Custom CSS
+# Page config & Custom CSS (Streamlit Vitals)
 # ------------------------
 st.set_page_config(page_title="Synthetic Data Lab", layout="wide", page_icon="🕸️")
 
 st.markdown("""
 <style>
-/* Main Content Styling */
+/* 1. Main Content Styling */
 .stApp {
     background-color: #f0f2f6; /* Light gray background */
 }
-/* Card style for summary */
+/* 2. Card style for summary */
 .card {
     background-color: #ffffff;
     border-radius: 12px;
@@ -40,38 +41,40 @@ st.markdown("""
     text-align: center;
     border-left: 5px solid #10c0c0; /* Accent border */
 }
-/* Custom Navigation Bar Styling */
+/* 3. Custom Navigation Bar Styling */
 .navbar {
     display: flex;
     justify-content: flex-start;
-    gap: 20px;
+    gap: 35px; /* Increased gap for better spacing */
     margin-bottom: 30px;
     border-bottom: 2px solid #ccc;
     padding-bottom: 10px;
 }
-/* Style the Streamlit buttons to look like tabs */
-.stButton>button {
-    background-color: transparent !important;
-    color: #4f4f4f !important;
+
+/* 4. Style for the custom text links (using <a> tags now, not st.markdown) */
+.nav-link-text {
     font-size: 1.1em;
     font-weight: 600;
-    border: none !important;
+    color: #4f4f4f !important; /* !important to override Streamlit's default link color */
+    text-decoration: none; /* Remove underline */
     padding: 5px 0 5px 0;
     transition: color 0.3s;
-    height: 100%;
 }
-.stButton>button:hover {
+
+.nav-link-text:hover {
     color: #10c0c0 !important;
-    background-color: transparent !important;
-    box-shadow: none !important;
 }
-/* Hide the default space used by the button so we can use markdown for the active line */
-div[data-testid="stHorizontalBlock"] > div > button {
-    visibility: hidden;
-    height: 0px !important;
-    margin: 0px !important;
-    padding: 0px !important;
+
+.nav-link-text.active {
+    color: #10c0c0 !important;
+    border-bottom: 3px solid #10c0c0;
 }
+
+/* 5. Hide the hamburger menu for a cleaner look */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -232,6 +235,7 @@ def make_download_link(df, filename="data.csv"):
     b64 = base64.b64encode(csv.encode()).decode()
     return f'<a href="data:file/csv;base64,{b64}" download="{filename}" style="background-color: #10c0c0; color: white; padding: 10px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">📥 Download {filename}</a>'
 
+
 # ------------------------------------------------------------------------------------------------
 # PAGE DEFINITIONS
 # ------------------------------------------------------------------------------------------------
@@ -267,8 +271,9 @@ def homepage():
         """)
 
     st.write("---")
-    if st.button("🚀 Start Synthesis"):
-        st.session_state.page = "lab"
+    # This is the single interactive element to move to the lab page
+    if st.button("🚀 Start Synthesis", key="start_synthesis_control"):
+        st.query_params['p'] = 'lab'
         st.rerun()
 
 
@@ -285,7 +290,6 @@ def about_page():
     with col2:
         st.markdown("#### Synthetic Data Vault (SDV)")
         st.info("The core engine. We use SDV's `CTGANSynthesizer` (a Generative Adversarial Network) for generating high-fidelity synthetic data, which excels at capturing complex dependencies.")
-        st.markdown("")
     
     with col3:
         st.markdown("#### Pandas & Scipy")
@@ -294,10 +298,6 @@ def about_page():
     st.markdown("### Key Scientific Validation Methods")
     st.markdown("The application relies on advanced statistical tests to guarantee data quality:")
     st.markdown("- **Kolmogorov-Smirnov (KS) Test:** A powerful non-parametric test to determine if two samples (Real vs. Synthetic) are drawn from the same distribution. A high p-value (e.g., >0.05) is desirable.")
-    st.markdown("""
-
-[Image of Kolmogorov-Smirnov test cumulative distribution function plot]
-""")
     st.markdown("- **Kernel Density Estimation (KDE):** Provides visual validation by plotting the smoothed probability distribution of numeric data, allowing visual comparison of shapes and modes.")
     st.markdown("- **Correlation Heatmaps:** Ensures that the synthetic data accurately maintains the relationships between the original numeric variables.")
 
@@ -414,7 +414,8 @@ def synthesis_lab_page(df_original_placeholder):
             st.json(metadata.to_dict()['columns'])
 
 
-        if st.button(f"Generate Data using {model}"):
+        # This remains st.button for the core interaction trigger
+        if st.button(f"Generate Data using {model}", key="generate_control"):
             
             if model == "CTGAN" and df_original.shape[0] < 100:
                 st.error(f"Dataset has only {df_original.shape[0]} rows. CTGAN is unstable with less than 100 rows. Please use Gaussian Copula.")
@@ -541,58 +542,36 @@ def synthesis_lab_page(df_original_placeholder):
 
 
 # ------------------------------------------------------------------------------------------------
-# MAIN APP ROUTING
+# MAIN APP ROUTING (PROFESSIONAL: Query Parameter Based)
 # ------------------------------------------------------------------------------------------------
 
-# Initialize session state for page navigation
-if 'page' not in st.session_state:
-    st.session_state.page = "home"
+# 1. Determine the current page from URL query parameters (default to 'home')
+current_page = st.query_params.get('p', 'home')
 
-# Navigation Bar
-nav_cols = st.columns(3)
+# 2. Function to generate the HTML for a single navigation link
+def generate_nav_link_html(label, page_key):
+    """Generates a professional HTML link using query parameters for routing."""
+    is_active = current_page == page_key
+    active_class = " active" if is_active else ""
+    # Use urllib.parse.urlencode to correctly construct the URL query string
+    link_url = f"?{urllib.parse.urlencode({'p': page_key})}"
+    return f'<a href="{link_url}" target="_self" class="nav-link-text{active_class}">{label}</a>'
 
-with st.container():
-    st.markdown("<div class='navbar'>", unsafe_allow_html=True)
-    
-    # Home Tab
-    with nav_cols[0]:
-        if st.button("Home", key="nav_home", use_container_width=True):
-            st.session_state.page = "home"
-            st.rerun()
-        if st.session_state.page == "home":
-            st.markdown("<div style='color: #10c0c0 !important; border-bottom: 3px solid #10c0c0; margin-top: -16px; font-weight: 600;'>Home</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div style='color: #4f4f4f; margin-top: -16px; font-weight: 600;'>Home</div>", unsafe_allow_html=True)
-
-
-    # Synthesis Lab Tab
-    with nav_cols[1]:
-        if st.button("Synthesis Lab", key="nav_lab", use_container_width=True):
-            st.session_state.page = "lab"
-            st.rerun()
-        if st.session_state.page == "lab":
-            st.markdown("<div style='color: #10c0c0 !important; border-bottom: 3px solid #10c0c0; margin-top: -16px; font-weight: 600;'>Synthesis Lab</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div style='color: #4f4f4f; margin-top: -16px; font-weight: 600;'>Synthesis Lab</div>", unsafe_allow_html=True)
-            
-
-    # About Tab
-    with nav_cols[2]:
-        if st.button("About", key="nav_about", use_container_width=True):
-            st.session_state.page = "about"
-            st.rerun()
-        if st.session_state.page == "about":
-            st.markdown("<div style='color: #10c0c0 !important; border-bottom: 3px solid #10c0c0; margin-top: -16px; font-weight: 600;'>About</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div style='color: #4f4f4f; margin-top: -16px; font-weight: 600;'>About</div>", unsafe_allow_html=True)
-            
-    st.markdown("</div>", unsafe_allow_html=True)
+# 3. Render the entire custom navigation bar
+nav_html = f"""
+<div class='navbar'>
+    {generate_nav_link_html("Home", "home")}
+    {generate_nav_link_html("Synthesis Lab", "lab")}
+    {generate_nav_link_html("About", "about")}
+</div>
+"""
+st.markdown(nav_html, unsafe_allow_html=True)
 
 
-# Render the correct page based on session state
-if st.session_state.page == "home":
+# 4. Render the correct page based on the query parameter
+if current_page == "home":
     homepage()
-elif st.session_state.page == "about":
+elif current_page == "about":
     about_page()
-elif st.session_state.page == "lab":
+elif current_page == "lab":
     synthesis_lab_page(None)
